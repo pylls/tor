@@ -2660,6 +2660,10 @@ circpad_machines_init(void)
   circpad_machine_client_hide_rend_circuits(origin_padding_machines);
   circpad_machine_relay_hide_rend_circuits(relay_padding_machines);
 
+  /* Register machines for the APE WF defense */
+  circpad_machine_client_wf_ape(origin_padding_machines);
+  circpad_machine_relay_wf_ape(relay_padding_machines);
+
   // TODO: Parse machines from consensus and torrc
 #ifdef TOR_UNIT_TESTS
   circpad_circ_client_machine_init();

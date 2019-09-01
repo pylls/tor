@@ -456,3 +456,246 @@ circpad_machine_relay_hide_rend_circuits(smartlist_t *machines_sl)
            "Registered relay rendezvous circuit hiding padding machine (%u)",
            relay_machine->machine_num);
 }
+
+/**************** Adaptive Padding Early (APE) machine ****************/
+
+/**
+ * Create a relay-side padding machine based on the APE design.
+ */
+void
+circpad_machine_relay_wf_ape(smartlist_t *machines_sl)
+{
+  circpad_machine_spec_t *relay_machine = circpad_machine_common_wf_ape();
+
+  relay_machine->name = "relay_wf_ape";
+  relay_machine->is_origin_side = 0; // relay-side
+
+  /* According to https://httparchive.org/reports/page-weight, in August 2019,
+  * the median desktop website was 1936.7 KB. Allowing 1000 padding cells should
+  * be about 25%, which is exceptionally good for a WF defense. APE will get
+  * much higher (due to 100% overhead limit in circpad_machine_common_wf_ape),
+  * but this allows APE to conceptually send a lot of its padding early. */
+  relay_machine->allowed_padding_count = 1000; 
+
+  /* ===== BURST ===== */
+
+  /* This is the sampled time before transitioning to the gap state (we
+  * transition on timeout as we send a padding cell). The goal here is to inject
+  * a fake burst as a response to a non-padding cell sent from the client.
+  * First, we use the RTT-estimate here as a lower bound since it estimates the
+  * RTT between relay and destination. What our distribution has to capture is
+  * variance.
+  *
+  * Assume it's reasonable to wait in the order of a few ms (beyond RRT). Uses a
+  * random uniform dist with a max at most 10 ms. */
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.param1 = 0;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.param2 = 10000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  relay_machine->states[CIRCPAD_STATE_BURST].use_rtt_estimate = 1;
+
+  /* ===== GAP ===== */
+
+  /* The IAT between the cells that make up our fake HTTP response. This should
+  * be small, it's basically variance between middle and destination. Assuming a
+  * full typical MTU, several cells of data (typically ~3) should have zero
+  * variance.
+  *
+  * Using a uniform dist with a max at most 2 ms. */
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param1 = 0;
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param2 = 2000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+
+  /* The length of the GAP state is more tricky: it's represents downloads of
+  * everything from small JS/CSS files, API responses in RESTful protocols, to
+  * larger common assets like images. 
+  *
+  * According to https://httparchive.org/reports/page-weight, in August 2019,
+  * the median desktop website was 1936.7 KB and transferred over 74 requests.
+  * This gives us around 20-30 KB per resource, so around 40-60 cells very
+  * roughly. We use this as an upper bound for a random uniform dist. */
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  length_dist.type = CIRCPAD_DIST_UNIFORM;
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  length_dist.param1 = 0; // recall, the transition already sent a cell
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  length_dist.param2 = 60 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  relay_machine->states[CIRCPAD_STATE_BURST].length_includes_nonpadding = 0;
+
+  // FIXME: randomize all distributions and static length parameters
+
+  // register the machine
+  relay_machine->machine_num = smartlist_len(machines_sl);
+  circpad_register_padding_machine(relay_machine, machines_sl);
+
+  log_info(LD_CIRC,
+           "Registered relay WF APE padding machine (%u)",
+           relay_machine->machine_num);
+}
+
+/**
+ * Create a client-side padding machine based on the APE design.
+ */
+void
+circpad_machine_client_wf_ape(smartlist_t *machines_sl)
+{
+  circpad_machine_spec_t *client_machine = circpad_machine_common_wf_ape();
+
+  client_machine->name = "client_wf_ape";
+  client_machine->is_origin_side = 1; // client-side
+
+  // about 0.25 MiB, a lot for what should be mostly HTTP requests
+  client_machine->allowed_padding_count = 500; 
+
+  // only for general purpose circuits
+  client_machine->conditions.purpose_mask =
+    circpad_circ_purpose_to_mask(CIRCUIT_PURPOSE_C_GENERAL)|
+    circpad_circ_purpose_to_mask(CIRCUIT_PURPOSE_C_CIRCUIT_PADDING);
+
+  /* ===== BURST ===== */
+
+  /* This is the sampled time we wait before transitioning to the gap state. The
+  * time should be really small on the client, it's basically the time between
+  * TB giving us another cells worth of data to send or not. If we wait too long
+  * it looks unrealistic.
+  *
+  * Ultimately, What we aim to encode in the client is more (or larger) HTTP GET
+  * requests from the client to the destination website.
+  *
+  * Order is well below 1 ms, so we wait between [50,500] us for real data. */
+  client_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  client_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.param1 = 0;
+  client_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.param2 = 450;
+  client_machine->states[CIRCPAD_STATE_BURST].
+  dist_added_shift_usec = 50;
+
+  /* If length == 0, we'll transition back to start state, otherwise it doesn't
+  * matter, because length_includes_nonpadding = 0 and we transition of burst
+  * after sending a single padding cell. This is a way to get a probability to
+  * transition back. */
+  client_machine->states[CIRCPAD_STATE_BURST].
+  length_dist.type = CIRCPAD_DIST_UNIFORM;
+  client_machine->states[CIRCPAD_STATE_BURST].
+  length_dist.param1 = 0;
+  client_machine->states[CIRCPAD_STATE_BURST].
+  length_dist.param2 = 3; // 25% chance to go back to wait
+  client_machine->states[CIRCPAD_STATE_BURST].length_includes_nonpadding = 0;
+
+  /* ===== GAP ===== */
+
+  /* The IAT between the cells that make up additional (or larger) HTTP GET
+  * requests from the client. Like for the BURST state, this time should be
+  * negligable. We let tor's internal plumming cause realistic delays between
+  * the cells.
+  *
+  * Set to [10,50] us. */
+  client_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param1 = 0;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param2 = 40;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  dist_added_shift_usec = 10;
+
+  /* Here we sample the number of cells that make up our additional (or larger)
+  * HTTP requests.
+  *
+  * http://dev.chromium.org/spdy/spdy-whitepaper states that "Request headers
+  * today vary in size from ~200 bytes to over 2KB", and that "typical header
+  * sizes of 700-800 bytes is common". This is about 1½-4 cells, and we already
+  * sent one cell (as part of the transition). Also, we want to potentially
+  * encode more than one request.
+  *
+  * Set to geometric with p = 0.3, giving mean 3.33 and variance 7.78. */
+  client_machine->states[CIRCPAD_STATE_GAP].
+  length_dist.type = CIRCPAD_DIST_GEOMETRIC;
+  client_machine->states[CIRCPAD_STATE_GAP].length_dist.param1 = 0.3;
+  client_machine->states[CIRCPAD_STATE_GAP].max_length = 40;
+  client_machine->states[CIRCPAD_STATE_GAP].length_includes_nonpadding = 0;
+
+  // register the machine
+  client_machine->machine_num = smartlist_len(machines_sl);
+  circpad_register_padding_machine(client_machine, machines_sl);
+  log_info(LD_CIRC,
+           "Registered client WF APE padding machine (%u)",
+           client_machine->machine_num);
+}
+
+/**
+ * Create an APE padding machine with the common parts for both clients and
+ * relays, since the adaptive padding state machine is the same.
+ */
+circpad_machine_spec_t *
+circpad_machine_common_wf_ape(void)
+{
+  circpad_machine_spec_t *m
+  = tor_malloc_zero(sizeof(circpad_machine_spec_t));
+
+  // pad to/from the middle relay when the circuit is open and has streams
+  m->target_hopnum = 2;
+  m->conditions.min_hops = 2;
+  m->conditions.state_mask = CIRCPAD_CIRC_OPENED|CIRCPAD_CIRC_STREAMS;
+
+  // this is 100% overhead
+  m->max_padding_percent = 50;
+
+  circpad_machine_common_adaptive_padding_machine(m);
+
+  return m;
+}
+
+/**
+ * Set the states of a machine to that of the Adapative Padding machine as shown
+ * in Figure 2, https://arxiv.org/pdf/1512.00524.pdf, "Toward an Efficient
+ * WebsiteFingerprinting Defense" by Juarez et al.
+ *
+ * Histograms and/or distributions are not set for any of the states.
+ * Transitions occur on either sampled infinity or used up length count, to
+ * support both WTF-PAD and APE designs.
+ */
+void
+circpad_machine_common_adaptive_padding_machine(circpad_machine_spec_t *m)
+{
+  // we have three states: start, burst, and gap
+  circpad_machine_states_init(m, 3);
+
+  /* In the AP figure, "psh" refers to when "a message pushed from the
+   * application (Tor Browser) to the PT client.", which in our case means that:
+   * - client, packet from TB towards relay
+   * - relay, packet from destination towards relay
+   *
+   * Of the events in the framework, this is CIRCPAD_EVENT_NONPADDING_SENT, and
+   * it should always transition us to the burst state.
+   * */
+  m->states[CIRCPAD_STATE_START].
+      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
+  m->states[CIRCPAD_STATE_BURST].
+      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
+  m->states[CIRCPAD_STATE_GAP].
+      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
+
+  // transition to gap on sending padding
+  m->states[CIRCPAD_STATE_BURST].
+      next_state[CIRCPAD_EVENT_PADDING_SENT] = CIRCPAD_STATE_GAP;
+
+  /* Transition "backwards" in the machine on:
+   * - sampled infinity (mainly histogram), or
+   * - used up length count (useful for distributions) */
+  m->states[CIRCPAD_STATE_GAP].
+      next_state[CIRCPAD_EVENT_INFINITY] = CIRCPAD_STATE_BURST;
+  m->states[CIRCPAD_STATE_BURST].
+      next_state[CIRCPAD_EVENT_INFINITY] = CIRCPAD_STATE_START;
+  m->states[CIRCPAD_STATE_GAP].
+      next_state[CIRCPAD_EVENT_LENGTH_COUNT] = CIRCPAD_STATE_BURST;
+  m->states[CIRCPAD_STATE_BURST].
+      next_state[CIRCPAD_EVENT_LENGTH_COUNT] = CIRCPAD_STATE_START;
+}

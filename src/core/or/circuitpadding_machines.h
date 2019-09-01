@@ -9,10 +9,16 @@
 #ifndef TOR_CIRCUITPADDING_MACHINES_H
 #define TOR_CIRCUITPADDING_MACHINES_H
 
+#include "core/or/circuitpadding.h"
+
 void circpad_machine_relay_hide_intro_circuits(smartlist_t *machines_sl);
 void circpad_machine_client_hide_intro_circuits(smartlist_t *machines_sl);
 void circpad_machine_relay_hide_rend_circuits(smartlist_t *machines_sl);
 void circpad_machine_client_hide_rend_circuits(smartlist_t *machines_sl);
+void circpad_machine_relay_wf_ape(smartlist_t *machines_sl);
+void circpad_machine_client_wf_ape(smartlist_t *machines_sl);
+circpad_machine_spec_t *circpad_machine_common_wf_ape(void);
+void circpad_machine_common_adaptive_padding_machine(circpad_machine_spec_t *m);
 
 #ifdef CIRCUITPADDING_MACHINES_PRIVATE
 
