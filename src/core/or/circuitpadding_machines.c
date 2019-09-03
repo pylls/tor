@@ -462,19 +462,19 @@ circpad_machine_relay_hide_rend_circuits(smartlist_t *machines_sl)
 * Setting: client <---> relay <---> destination
 *
 * APE (and WTF-PAD) consists of four machines, two running at the client and two
-* at the middle relay, of a circuit:
+* at the middle relay, acting on the same circuit:
 *
-* - at the client, circpad_machine_relay_wf_ape_send() is concerned with the
-*   client sending non-padding cells to the destination, and
-*   circpad_machine_relay_wf_ape_recv() is conerned with the client receiving
+* - at the client, circpad_machine_client_wf_ape_send() acts on the client
+*   sending non-padding cells to the destination, and
+*   circpad_machine_client_wf_ape_recv() acts on the client receiving
 *   non-padding cells from the destination.
 *
-* - at the relay, circpad_machine_relay_wf_ape_send() is concerned with the
-*   destination sending non-padding cells to the client, and
-*   circpad_machine_relay_wf_ape_recv() is concered with the destination
-*   receiving non-padding cells to the client. 
+* - at the relay, circpad_machine_relay_wf_ape_send() acts on the destination
+*   sending non-padding cells to the client, and
+*   circpad_machine_relay_wf_ape_recv() acts on the destination receiving
+*   non-padding cells to the client. 
 *
-* Note that APE, like WTF-PAD, is highly likely to be ineffective against WF
+* Note that APE, like WTF-PAD, is highly likely to be _ineffective_ against WF
 * attacks based on deep learning. This implementation is just as a demonstrator
 * of the circuit padding framework. No effort has been spent on optimizing
 * distributions. 
@@ -487,7 +487,7 @@ circpad_machine_relay_hide_rend_circuits(smartlist_t *machines_sl)
 void
 circpad_machine_relay_wf_ape_send(smartlist_t *machines_sl)
 {
-  circpad_machine_spec_t *relay_machine = circpad_machine_common_wf_ape_create();
+  circpad_machine_spec_t *relay_machine = circpad_machine_common_wf_ape_make();
   circpad_machine_common_adaptive_padding_machine(CIRCPAD_EVENT_NONPADDING_SENT,                                                relay_machine);
   relay_machine->name = "relay_wf_ape_send";
   relay_machine->is_origin_side = 0; // relay-side
@@ -532,7 +532,7 @@ circpad_machine_relay_wf_ape_send(smartlist_t *machines_sl)
   * According to https://httparchive.org/reports/page-weight, in August 2019,
   * the median desktop website was 1936.7 KB and transferred over 74 requests.
   * This gives us around 20-30 KB per resource, so around 40-60 cells very
-  * roughly. We only want to do small extensions. */
+  * roughly. We only want to do small extensions here. */
   relay_machine->states[CIRCPAD_STATE_GAP].
   length_dist.type = CIRCPAD_DIST_UNIFORM;
   relay_machine->states[CIRCPAD_STATE_GAP].
@@ -557,7 +557,7 @@ circpad_machine_relay_wf_ape_send(smartlist_t *machines_sl)
 void
 circpad_machine_relay_wf_ape_recv(smartlist_t *machines_sl)
 {
-  circpad_machine_spec_t *relay_machine = circpad_machine_common_wf_ape_create();
+  circpad_machine_spec_t *relay_machine = circpad_machine_common_wf_ape_make();
   circpad_machine_common_adaptive_padding_machine(CIRCPAD_EVENT_NONPADDING_RECV,                                                relay_machine);
   relay_machine->name = "relay_wf_ape_recv";
   relay_machine->is_origin_side = 0; // relay-side
@@ -636,7 +636,7 @@ circpad_machine_relay_wf_ape_recv(smartlist_t *machines_sl)
 void
 circpad_machine_client_wf_ape_send(smartlist_t *machines_sl)
 {
-  circpad_machine_spec_t *client_machine = circpad_machine_common_wf_ape_create();
+  circpad_machine_spec_t *client_machine = circpad_machine_common_wf_ape_make();
   circpad_machine_common_adaptive_padding_machine(CIRCPAD_EVENT_NONPADDING_SENT,                                                client_machine);
   client_machine->name = "client_wf_ape_send";
   client_machine->is_origin_side = 1; // client-side
@@ -730,7 +730,7 @@ circpad_machine_client_wf_ape_send(smartlist_t *machines_sl)
 void
 circpad_machine_client_wf_ape_recv(smartlist_t *machines_sl)
 {
-  circpad_machine_spec_t *client_machine = circpad_machine_common_wf_ape_create();
+  circpad_machine_spec_t *client_machine = circpad_machine_common_wf_ape_make();
   circpad_machine_common_adaptive_padding_machine(CIRCPAD_EVENT_NONPADDING_RECV,                                                client_machine);
   client_machine->name = "client_wf_ape_recv";
   client_machine->is_origin_side = 1; // client-side
@@ -784,7 +784,7 @@ circpad_machine_client_wf_ape_recv(smartlist_t *machines_sl)
  * relays, regardless if for of send or receive events.
  */
 circpad_machine_spec_t *
-circpad_machine_common_wf_ape_create(void)
+circpad_machine_common_wf_ape_make(void)
 {
   circpad_machine_spec_t *m
   = tor_malloc_zero(sizeof(circpad_machine_spec_t));
