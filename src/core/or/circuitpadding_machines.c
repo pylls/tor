@@ -561,6 +561,7 @@ circpad_machine_relay_wf_ape_recv(smartlist_t *machines_sl)
   circpad_machine_common_adaptive_padding_machine(CIRCPAD_EVENT_NONPADDING_RECV,                                                relay_machine);
   relay_machine->name = "relay_wf_ape_recv";
   relay_machine->is_origin_side = 0; // relay-side
+  relay_machine->machine_index = 1; // index 0 for send, 1 for recv
 
   /* According to https://httparchive.org/reports/page-weight, in August 2019,
   * the median desktop website was 1936.7 KB. Allowing 1000 padding cells should
@@ -734,6 +735,7 @@ circpad_machine_client_wf_ape_recv(smartlist_t *machines_sl)
   circpad_machine_common_adaptive_padding_machine(CIRCPAD_EVENT_NONPADDING_RECV,                                                client_machine);
   client_machine->name = "client_wf_ape_recv";
   client_machine->is_origin_side = 1; // client-side
+  client_machine->machine_index = 1; // index 0 for send, 1 for recv
 
   /* about 0.25 MiB, a lot for what should be mostly HTTP requests, but not much
   * in terms of real bandwidth with mostly symmetric connections abound */
@@ -797,15 +799,19 @@ circpad_machine_common_wf_ape_make(void)
   // this is about 50% overhead, 1/3 padding, 2/3 non-padding
   m->max_padding_percent = 33;
 
+  /* explicit default to index 0, set to 1 on _recv machines: this is needed for
+   * the circuit framework to run both padding machines on the same circuit */
+  m->machine_index = 0;
+
   return m;
-}
+  }
 
 /**
- * In burst state, use the length count to make the transition back to the start
- * state probabilistic. This is used in place of the infinity bin in a
- * histogram, as in WTF-PAD. 
- *
- * Results in 1/(l+1) probability of transitioning to the start state.
+   In burst state, use the length count to make the transition back to the start
+   state probabilistic. This is used in place of the infinity bin in a
+   histogram, as in WTF-PAD. 
+
+   Results in 1/(l+1) probability of transitioning to the start state.
  */
 void
 circpad_machine_common_wf_ape_prob_back(circpad_machine_spec_t *m, double l)
