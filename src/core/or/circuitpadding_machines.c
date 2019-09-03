@@ -495,20 +495,27 @@ circpad_machine_relay_wf_ape_send(smartlist_t *machines_sl)
   // a small budget, don't think extending bursts are all that useful
   relay_machine->allowed_padding_count = 200; 
 
+
+  // prevent the machine from sending a padding cell too early (FIXME: bug?)
+  relay_machine->states[CIRCPAD_STATE_START].
+      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_IGNORE;
+  relay_machine->states[CIRCPAD_STATE_START].
+      next_state[CIRCPAD_EVENT_NONPADDING_RECV] = CIRCPAD_STATE_BURST;
+
   /* ===== BURST ===== */
 
   /* This is the sampled time before transitioning to the gap state (we
   * transition on timeout due to sending a padding cell). Should be short, order
-  * a few ms. Uses a random uniform dist with a max at most 5 ms. */
+  * a few ms. Uses a random uniform dist with a max at most 10 ms. */
   relay_machine->states[CIRCPAD_STATE_BURST].
   iat_dist.type = CIRCPAD_DIST_UNIFORM;
   relay_machine->states[CIRCPAD_STATE_BURST].
   iat_dist.param1 = 0;
   relay_machine->states[CIRCPAD_STATE_BURST].
-  iat_dist.param2 = 5000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  iat_dist.param2 = 10000 * crypto_fast_rng_get_double(get_thread_fast_rng());
 
-  // results in 25% chance of transitioning back to start from burst
-  circpad_machine_common_wf_ape_prob_back(relay_machine, 3);
+  // results in 50% chance of transitioning back to start from burst
+  circpad_machine_common_wf_ape_prob_back(relay_machine, 1);
 
   /* ===== GAP ===== */
 
@@ -794,7 +801,7 @@ circpad_machine_common_wf_ape_make(void)
   // pad to/from the middle relay when the circuit is open and has streams
   m->target_hopnum = 2;
   m->conditions.min_hops = 2;
-  m->conditions.state_mask = CIRCPAD_CIRC_OPENED|CIRCPAD_CIRC_STREAMS;
+  m->conditions.state_mask = CIRCPAD_CIRC_STREAMS;
 
   // this is about 50% overhead, 1/3 padding, 2/3 non-padding
   m->max_padding_percent = 33;
