@@ -2116,8 +2116,8 @@ circpad_add_matching_machines(origin_circuit_t *on_circ,
           circ->padding_machine[i] = NULL;
           on_circ->padding_negotiation_failed = 1;
         } else {
-          /* Success. Don't try any more machines */
-          return;
+          /* Success. Don't try any more machines for this index */
+          break;
         }
       }
     } SMARTLIST_FOREACH_END(machine);
@@ -2387,9 +2387,10 @@ circpad_setup_machine_on_circ(circuit_t *on_circ,
 
   /* Log message */
   if (CIRCUIT_IS_ORIGIN(on_circ)) {
-    log_info(LD_CIRC, "Registering machine %s to origin circ %u (%d)",
+    log_info(LD_CIRC, "Registering machine %s to origin circ %u (%d), index %d",
              machine->name,
-             TO_ORIGIN_CIRCUIT(on_circ)->global_identifier, on_circ->purpose);
+             TO_ORIGIN_CIRCUIT(on_circ)->global_identifier, on_circ->purpose, 
+             machine->machine_index);
   } else {
     log_info(LD_CIRC, "Registering machine %s to non-origin circ (%d)",
              machine->name, on_circ->purpose);
@@ -2663,8 +2664,8 @@ circpad_machines_init(void)
   /* Register machines for the APE WF defense */
   circpad_machine_client_wf_ape_send(origin_padding_machines);
   circpad_machine_client_wf_ape_recv(origin_padding_machines);
-  circpad_machine_relay_wf_ape_send(relay_padding_machines);
-  circpad_machine_relay_wf_ape_recv(relay_padding_machines);
+  //circpad_machine_relay_wf_ape_send(relay_padding_machines);
+  //circpad_machine_relay_wf_ape_recv(relay_padding_machines);
 
   // TODO: Parse machines from consensus and torrc
 #ifdef TOR_UNIT_TESTS
