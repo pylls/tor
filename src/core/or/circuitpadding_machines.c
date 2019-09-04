@@ -456,3 +456,139 @@ circpad_machine_relay_hide_rend_circuits(smartlist_t *machines_sl)
            "Registered relay rendezvous circuit hiding padding machine (%u)",
            relay_machine->machine_num);
 }
+
+void 
+circpad_machine_client_close_circuit_minimal(smartlist_t *machines_sl)
+{
+  circpad_machine_spec_t *client_machine
+  = tor_malloc_zero(sizeof(circpad_machine_spec_t));
+
+  client_machine->name = "client_close_circuit_minimal";
+  client_machine->is_origin_side = 1;
+
+  // pad to/from the middle relay when the circuit is open and has streams
+  client_machine->target_hopnum = 2;
+  client_machine->conditions.min_hops = 2;
+  client_machine->conditions.state_mask = CIRCPAD_CIRC_STREAMS;
+
+  // only for general purpose circuits
+  client_machine->conditions.purpose_mask =
+    circpad_circ_purpose_to_mask(CIRCUIT_PURPOSE_C_GENERAL);
+
+  // when we send a padding cell, end (but we'll never send one)
+  circpad_machine_states_init(client_machine, 1);
+  client_machine->states[CIRCPAD_STATE_START].
+      next_state[CIRCPAD_EVENT_PADDING_SENT] = CIRCPAD_STATE_END;
+
+  client_machine->states[CIRCPAD_STATE_START].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  client_machine->states[CIRCPAD_STATE_START].
+  iat_dist.param1 = 0;
+  client_machine->states[CIRCPAD_STATE_START].
+  iat_dist.param2 = 1;
+  // wait at least 1000 seconds before sending padding
+  client_machine->states[CIRCPAD_STATE_START].
+  dist_added_shift_usec = 1000*1000*1000;
+
+  client_machine->machine_num = smartlist_len(machines_sl);
+  circpad_register_padding_machine(client_machine, machines_sl);
+
+  log_info(LD_CIRC,
+           "Registered client close circuit minimal padding machine (%u)",
+           client_machine->machine_num);
+}
+
+void circpad_machine_relay_close_circuit_minimal(smartlist_t *machines_sl)
+{
+  circpad_machine_spec_t *relay_machine = tor_malloc_zero(sizeof(circpad_machine_spec_t));
+
+  relay_machine->name = "relay_close_circuit_minimal";
+  relay_machine->is_origin_side = 0; // relay-side
+  relay_machine->target_hopnum = 2;
+  relay_machine->conditions.min_hops = 2;
+  relay_machine->conditions.state_mask = CIRCPAD_CIRC_STREAMS;
+
+  // prevent limits from kicking in
+  relay_machine->allowed_padding_count = 200; 
+
+   // we have three states: start, burst, and gap
+  circpad_machine_states_init(relay_machine, 3);
+
+  // main event to always transition to burst-state on
+  relay_machine->states[CIRCPAD_STATE_START].
+      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
+  relay_machine->states[CIRCPAD_STATE_GAP].
+      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
+
+  // transition from burst to gap state on sending padding (timeout)
+  relay_machine->states[CIRCPAD_STATE_BURST].
+      next_state[CIRCPAD_EVENT_PADDING_SENT] = CIRCPAD_STATE_GAP;
+
+  /* Transition "backwards" in the machine on used up length count (useful for
+  distributions) */
+  relay_machine->states[CIRCPAD_STATE_GAP].
+      next_state[CIRCPAD_EVENT_LENGTH_COUNT] = CIRCPAD_STATE_BURST;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+      next_state[CIRCPAD_EVENT_LENGTH_COUNT] = CIRCPAD_STATE_START;
+
+  /* ===== BURST dist ===== */
+
+  /* This is the sampled time before transitioning to the gap state (we
+  * transition on timeout due to sending a padding cell). Should be short, order
+  * a few ms. Uses a random uniform dist with a max at most 10 ms. */
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.param1 = 0;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  iat_dist.param2 = 10000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+
+  // results in 25% chance of transitioning back to start from burst
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  length_dist.type = CIRCPAD_DIST_UNIFORM;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  length_dist.param1 = 0;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  length_dist.param2 = 3; 
+  relay_machine->states[CIRCPAD_STATE_BURST].length_includes_nonpadding = 0;
+
+  /* ===== GAP ===== */
+
+  /* The IAT between the cells that make up our fake (extended) HTTP response.
+  * This should be small, it's basically variance between middle and
+  * destination. Assuming a full typical MTU, several cells of data (typically
+  * ~3) should have zero delay.
+  *
+  * Using a uniform dist with a max at most 2 ms. */
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param1 = 0;
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param2 = 2000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+
+  /* The length of the GAP state is more tricky: it's represents downloads of
+  * everything from small JS/CSS files, API responses in RESTful protocols, to
+  * larger common assets like images. 
+  *
+  * According to https://httparchive.org/reports/page-weight, in August 2019,
+  * the median desktop website was 1936.7 KB and transferred over 74 requests.
+  * This gives us around 20-30 KB per resource, so around 40-60 cells very
+  * roughly. We only want to do small extensions here. */
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  length_dist.type = CIRCPAD_DIST_UNIFORM;
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  length_dist.param1 = 0; // recall, the transition already sent a cell
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  length_dist.param2 = 20 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  relay_machine->states[CIRCPAD_STATE_BURST].length_includes_nonpadding = 0;
+
+  // register the machine
+  relay_machine->machine_num = smartlist_len(machines_sl);
+  circpad_register_padding_machine(relay_machine, machines_sl);
+  log_info(LD_CIRC,
+           "Registered relay close circuit minimal padding machine (%u)",
+           relay_machine->machine_num);
+}
