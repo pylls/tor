@@ -464,14 +464,11 @@ circpad_machine_client_close_circuit_minimal(smartlist_t *machines_sl)
   = tor_malloc_zero(sizeof(circpad_machine_spec_t));
 
   client_machine->name = "client_close_circuit_minimal";
-  client_machine->is_origin_side = 1;
+  client_machine->is_origin_side = 1; // client
+  client_machine->target_hopnum = 2; // middle
 
-  // pad to/from the middle relay when the circuit is open and has streams
-  client_machine->target_hopnum = 2;
-  client_machine->conditions.min_hops = 2;
-  client_machine->conditions.state_mask = CIRCPAD_CIRC_STREAMS;
-
-  // only for general purpose circuits
+  client_machine->conditions.min_hops = 3;
+  client_machine->conditions.state_mask = CIRCPAD_CIRC_OPENED;
   client_machine->conditions.purpose_mask =
     circpad_circ_purpose_to_mask(CIRCUIT_PURPOSE_C_GENERAL);
 
@@ -494,60 +491,40 @@ circpad_machine_client_close_circuit_minimal(smartlist_t *machines_sl)
   circpad_register_padding_machine(client_machine, machines_sl);
 
   log_info(LD_CIRC,
-           "Registered client close circuit minimal padding machine v2 (%u)",
+           "Registered client close circuit minimal padding machine (%u)",
            client_machine->machine_num);
 }
 
-void circpad_machine_relay_close_circuit_minimal(smartlist_t *machines_sl)
+void 
+circpad_machine_relay_close_circuit_minimal(smartlist_t *machines_sl)
 {
   circpad_machine_spec_t *relay_machine = tor_malloc_zero(sizeof(circpad_machine_spec_t));
 
   relay_machine->name = "relay_close_circuit_minimal";
   relay_machine->is_origin_side = 0; // relay-side
   relay_machine->target_hopnum = 2;
-  relay_machine->conditions.min_hops = 2;
-  relay_machine->conditions.state_mask = CIRCPAD_CIRC_OPENED;
-
-  // prevent limits from kicking in
-  relay_machine->allowed_padding_count = 100; 
-
-   // we have three states: start, burst, and gap
   circpad_machine_states_init(relay_machine, 2);
 
-  // main event to always transition to burst-state on
+  // goal: on CIRCPAD_EVENT_NONPADDING_SENT, send a padding cell ASAP
   relay_machine->states[CIRCPAD_STATE_START].
       next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
-  relay_machine->states[CIRCPAD_STATE_BURST].
-      next_state[CIRCPAD_EVENT_NONPADDING_SENT] = CIRCPAD_STATE_BURST;
-  relay_machine->states[CIRCPAD_STATE_BURST].
-      next_state[CIRCPAD_EVENT_PADDING_SENT] = CIRCPAD_STATE_BURST;
 
-  /* Transition "backwards" in the machine on used up length count (useful for
-  distributions) */
-  // appears vital..
-  relay_machine->states[CIRCPAD_STATE_BURST].
-      next_state[CIRCPAD_EVENT_LENGTH_COUNT] = CIRCPAD_STATE_START;
-
-  // sends 10 cells ASAP
+  // when to send? in 1 usec
   relay_machine->states[CIRCPAD_STATE_BURST].
   iat_dist.type = CIRCPAD_DIST_UNIFORM;
   relay_machine->states[CIRCPAD_STATE_BURST].
-  iat_dist.param1 = 0;
+  iat_dist.param1 = 1;
   relay_machine->states[CIRCPAD_STATE_BURST].
-  iat_dist.param2 = 10;
+  iat_dist.param2 = 1;
 
+  // after sent, transition back to start
   relay_machine->states[CIRCPAD_STATE_BURST].
-  length_dist.type = CIRCPAD_DIST_UNIFORM;
-  relay_machine->states[CIRCPAD_STATE_BURST].
-  length_dist.param1 = 10;
-  relay_machine->states[CIRCPAD_STATE_BURST].
-  length_dist.param2 = 10; 
-  relay_machine->states[CIRCPAD_STATE_BURST].length_includes_nonpadding = 0;
+    next_state[CIRCPAD_EVENT_PADDING_SENT] = CIRCPAD_STATE_START;
 
   // register the machine
   relay_machine->machine_num = smartlist_len(machines_sl);
   circpad_register_padding_machine(relay_machine, machines_sl);
   log_info(LD_CIRC,
-           "Registered relay close circuit minimal padding machine v2 (%u)",
+           "Registered relay close circuit minimal padding machine (%u)",
            relay_machine->machine_num);
 }
