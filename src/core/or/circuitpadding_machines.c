@@ -516,6 +516,9 @@ circpad_machine_relay_close_circuit_minimal(smartlist_t *machines_sl)
   iat_dist.param1 = 1;
   relay_machine->states[CIRCPAD_STATE_BURST].
   iat_dist.param2 = 1;
+  // FIXME: uncomment below to not trigger the bug
+  //relay_machine->states[CIRCPAD_STATE_BURST].
+  //dist_added_shift_usec = 1000*1000;
 
   // after sent, transition back to start
   relay_machine->states[CIRCPAD_STATE_BURST].
