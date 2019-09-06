@@ -1482,7 +1482,7 @@ circpad_machine_schedule_padding,(circpad_machine_runtime_t *mi))
   }
 
   if (in_usec <= 0) {
-    return circpad_send_padding_cell_for_callback(mi);
+    in_usec = 0;
   }
 
   timeout.tv_sec = in_usec/TOR_USEC_PER_SEC;
