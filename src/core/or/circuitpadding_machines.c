@@ -513,6 +513,8 @@ circpad_machine_relay_wf_ape_send(smartlist_t *machines_sl)
   iat_dist.param1 = 0;
   relay_machine->states[CIRCPAD_STATE_BURST].
   iat_dist.param2 = 10000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  dist_max_sample_usec = relay_machine->states[CIRCPAD_STATE_BURST].iat_dist.param2;
 
   // results in 50% chance of transitioning back to start from burst
   circpad_machine_common_wf_ape_prob_back(relay_machine, 1);
@@ -531,6 +533,8 @@ circpad_machine_relay_wf_ape_send(smartlist_t *machines_sl)
   iat_dist.param1 = 0;
   relay_machine->states[CIRCPAD_STATE_GAP].
   iat_dist.param2 = 2000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  dist_max_sample_usec = relay_machine->states[CIRCPAD_STATE_GAP].iat_dist.param2;
 
   /* The length of the GAP state is more tricky: it's represents downloads of
   * everything from small JS/CSS files, API responses in RESTful protocols, to
@@ -593,6 +597,8 @@ circpad_machine_relay_wf_ape_recv(smartlist_t *machines_sl)
   relay_machine->states[CIRCPAD_STATE_BURST].
   iat_dist.param2 = 10000 * crypto_fast_rng_get_double(get_thread_fast_rng());
   relay_machine->states[CIRCPAD_STATE_BURST].use_rtt_estimate = 1;
+  relay_machine->states[CIRCPAD_STATE_BURST].
+  dist_max_sample_usec = relay_machine->states[CIRCPAD_STATE_BURST].iat_dist.param2;
 
   // results in 25% chance of transitioning back to start from burst
   circpad_machine_common_wf_ape_prob_back(relay_machine, 3);
@@ -611,6 +617,8 @@ circpad_machine_relay_wf_ape_recv(smartlist_t *machines_sl)
   iat_dist.param1 = 0;
   relay_machine->states[CIRCPAD_STATE_GAP].
   iat_dist.param2 = 2000 * crypto_fast_rng_get_double(get_thread_fast_rng());
+  relay_machine->states[CIRCPAD_STATE_GAP].
+  dist_max_sample_usec = relay_machine->states[CIRCPAD_STATE_GAP].iat_dist.param2;
 
   /* The length of the GAP state is more tricky: it's represents downloads of
   * everything from small JS/CSS files, API responses in RESTful protocols, to
@@ -682,6 +690,9 @@ circpad_machine_client_wf_ape_send(smartlist_t *machines_sl)
   iat_dist.param2 = 1000 * crypto_fast_rng_get_double(get_thread_fast_rng());
   client_machine->states[CIRCPAD_STATE_BURST].
   dist_added_shift_usec = 100;
+  client_machine->states[CIRCPAD_STATE_BURST].
+  dist_max_sample_usec = client_machine->states[CIRCPAD_STATE_BURST].iat_dist.param2 + 
+  client_machine->states[CIRCPAD_STATE_BURST].dist_added_shift_usec;
 
   // results in 25% chance of transitioning back to start from burst
   circpad_machine_common_wf_ape_prob_back(client_machine, 3);
@@ -702,6 +713,9 @@ circpad_machine_client_wf_ape_send(smartlist_t *machines_sl)
   iat_dist.param2 = 40;
   client_machine->states[CIRCPAD_STATE_GAP].
   dist_added_shift_usec = 10;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  dist_max_sample_usec = client_machine->states[CIRCPAD_STATE_GAP].iat_dist.param2 + 
+  client_machine->states[CIRCPAD_STATE_GAP].dist_added_shift_usec;
 
   /* Here we sample the number of cells that make up our additional (or larger)
   * HTTP requests.
@@ -765,6 +779,9 @@ circpad_machine_client_wf_ape_recv(smartlist_t *machines_sl)
   iat_dist.param2 = 1000 * crypto_fast_rng_get_double(get_thread_fast_rng());
   client_machine->states[CIRCPAD_STATE_BURST].
   dist_added_shift_usec = 200;
+  client_machine->states[CIRCPAD_STATE_BURST].
+  dist_max_sample_usec = client_machine->states[CIRCPAD_STATE_BURST].iat_dist.param2 + 
+  client_machine->states[CIRCPAD_STATE_BURST].dist_added_shift_usec;
 
   // results in 25% chance of transitioning back to start from burst
   circpad_machine_common_wf_ape_prob_back(client_machine, 3);
@@ -772,6 +789,18 @@ circpad_machine_client_wf_ape_recv(smartlist_t *machines_sl)
   /* ===== GAP ===== */
 
   // identical to circpad_machine_client_wf_ape_send()
+  client_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.type = CIRCPAD_DIST_UNIFORM;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param1 = 0;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  iat_dist.param2 = 40;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  dist_added_shift_usec = 10;
+  client_machine->states[CIRCPAD_STATE_GAP].
+  dist_max_sample_usec = client_machine->states[CIRCPAD_STATE_GAP].iat_dist.param2 + 
+  client_machine->states[CIRCPAD_STATE_GAP].dist_added_shift_usec;
+  
   client_machine->states[CIRCPAD_STATE_GAP].
   length_dist.type = CIRCPAD_DIST_GEOMETRIC;
   client_machine->states[CIRCPAD_STATE_GAP].
